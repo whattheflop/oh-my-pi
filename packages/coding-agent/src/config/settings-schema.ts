@@ -5136,6 +5136,28 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"task.extensions.mode": {
+		type: "enum",
+		values: ["inherit", "none", "allowlist"] as const,
+		default: "inherit",
+		ui: {
+			tab: "tasks",
+			group: "Subagents",
+			label: "Task Extensions",
+			description:
+				"Filesystem extension modules available to task subagents. Inherit forwards the parent's prepared modules; none disables extension discovery; allowlist forwards only exact extension-module:<name> ids from task.extensions.allowlist.",
+			options: [
+				{ value: "inherit", label: "Inherit", description: "Forward the parent's extension modules" },
+				{ value: "none", label: "None", description: "Disable filesystem extension modules in subagents" },
+				{ value: "allowlist", label: "Allowlist", description: "Forward only ids in the allowlist" },
+			],
+		},
+	},
+	"task.extensions.allowlist": {
+		type: "array",
+		default: [] as string[],
+	},
+
 	"task.disabledAgents": {
 		type: "array",
 		default: [] as string[],

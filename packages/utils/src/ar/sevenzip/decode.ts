@@ -155,6 +155,10 @@ export class SevenZipFolderSource {
 		return this.#cached;
 	}
 
+	release(): void {
+		this.#cached = undefined;
+	}
+
 	async #decode(): Promise<Uint8Array> {
 		const folder = this.#folder;
 		if (folder.packedIndices.length !== 1 || folder.packOffsets.length !== 1 || folder.packSizes.length !== 1) {

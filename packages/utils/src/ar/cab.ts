@@ -124,6 +124,10 @@ class CabFolder {
 		return this.#decoded;
 	}
 
+	release(): void {
+		this.#decoded = undefined;
+	}
+
 	async #decode(): Promise<Uint8Array> {
 		const description = this.#description;
 		if (description.method === 2) {
@@ -237,6 +241,10 @@ class CabMemberSource implements MemberSource {
 			throw new ArchiveError(`Invalid CAB archive: member '${memberPath}' is outside its folder data`);
 		}
 		return folder.slice(this.#offset, end);
+	}
+
+	release(): void {
+		this.#folder.release();
 	}
 }
 

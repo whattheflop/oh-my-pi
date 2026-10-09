@@ -773,4 +773,22 @@ describe("system prompt tool inventory", () => {
 		);
 		expect(withTodo).toContain("Todo calls NEVER alone");
 	});
+	it("keeps rendered bytes stable while isolating each result's block array", async () => {
+		const options = {
+			resolvedCustomPrompt: "Base prompt",
+			contextFiles: [],
+			skills: [],
+			rules: [],
+			workspaceTree: { ...EMPTY_TREE, rootPath: tempDir },
+			activeRepoContext: null,
+		};
+
+		const first = await buildSystemPrompt(options);
+		const second = await buildSystemPrompt(options);
+
+		expect(first.systemPrompt.join("\n\n")).toBe(second.systemPrompt.join("\n\n"));
+		expect(first.systemPrompt).not.toBe(second.systemPrompt);
+		expect(Object.isFrozen(first.systemPrompt)).toBe(true);
+		expect(Object.isFrozen(second.systemPrompt)).toBe(true);
+	});
 });

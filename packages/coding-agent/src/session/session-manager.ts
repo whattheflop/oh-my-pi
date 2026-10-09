@@ -18,6 +18,7 @@ import {
 	stringifyJson,
 	toError,
 } from "@oh-my-pi/pi-utils";
+import type { TaskExtensionPolicy } from "../task/extension-policy";
 import type { StructuredSubagentSchemaMode } from "../task/types";
 import { ArtifactManager } from "./artifacts";
 import { type BlobPutOptions, type BlobPutResult, BlobStore } from "./blob-store";
@@ -2400,6 +2401,7 @@ export class SessionManager {
 		spawns?: string;
 		readSummarize?: boolean;
 		advisor?: string;
+		taskExtensionPolicy?: TaskExtensionPolicy;
 	}): string {
 		const entry: SessionInitEntry = { type: "session_init", ...this.#freshEntryFields(), ...init };
 		this.#recordEntry(entry);
@@ -2965,6 +2967,7 @@ export class SessionManager {
 			spawns?: string;
 			readSummarize?: boolean;
 			advisor?: string;
+			taskExtensionPolicy?: TaskExtensionPolicy;
 		} | null;
 	} | null> {
 		let header: SessionHeader | undefined;
@@ -2982,6 +2985,7 @@ export class SessionManager {
 			spawns?: string;
 			readSummarize?: boolean;
 			advisor?: string;
+			taskExtensionPolicy?: TaskExtensionPolicy;
 		} | null = null;
 		const visit = (entry: FileEntry): void => {
 			if (entry.type === "session") {
@@ -3002,6 +3006,7 @@ export class SessionManager {
 					restrictToolNames: entry.restrictToolNames,
 					readSummarize: entry.readSummarize,
 					spawns: entry.spawns,
+					taskExtensionPolicy: entry.taskExtensionPolicy,
 					advisor: entry.advisor,
 				};
 			}

@@ -259,9 +259,9 @@ describe("runSubprocess parent-discovery pass-through (issue #2190)", () => {
 			outputSchema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
 			outputSchemaMode: "strict",
 		});
+		const forwarded = spy.mock.calls[0]?.[0];
 
 		expect(result.exitCode).toBe(0);
-		const forwarded = spy.mock.calls[0]?.[0];
 		expect(forwarded?.restrictToolNames).toBe(true);
 		expect(forwarded?.enableMCP).toBe(false);
 		expect(forwarded?.mcpManager).toBeUndefined();

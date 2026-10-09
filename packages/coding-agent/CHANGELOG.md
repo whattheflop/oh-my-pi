@@ -465,6 +465,9 @@
 - Accelerated SHA-2 and SHA-3 checksum builtins on supported ARM64 hardware.
 - Fixed joined collaboration guests becoming inconsistent with the host after host-side compaction.
 - Fixed `hub list` and child peer rosters counting parked agents from stale root sessions; the persisted roster now scopes to the current root, retries transient filesystem faults, and renders live rows through the production subagent prompt template with a truthful omitted count.
+### Added
+
+- Added configurable task-subagent extension inheritance, including disable and allowlist modes with per-agent overrides.
 
 ## [18.0.6] - 2026-08-26
 

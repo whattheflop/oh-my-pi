@@ -11,6 +11,7 @@ import { isXz, xzDecompress } from "./codecs/xz";
 import { isZstd, zstdDecompress } from "./codecs/zstd";
 import { readCpio, sniffCpio } from "./cpio";
 import { readDeb, sniffDeb } from "./deb";
+import { ArchiveError } from "./error";
 import { readIso, sniffIso } from "./iso";
 import { assertInMemorySize } from "./limits";
 import { readLzh, sniffLzh } from "./lzh";
@@ -89,14 +90,18 @@ function stemMemberName(archivePath: string | undefined): string {
 	return base || "data";
 }
 
-/** In-memory bytes as a `MemberSource` (single-member pseudo-archives). */
 class BufferMember implements MemberSource {
-	#bytes: Uint8Array;
+	#bytes?: Uint8Array;
 	constructor(bytes: Uint8Array) {
 		this.#bytes = bytes;
 	}
 	async read(): Promise<Uint8Array> {
-		return this.#bytes;
+		const bytes = this.#bytes;
+		if (!bytes) throw new ArchiveError("Archive reader has released its materialized data");
+		return bytes;
+	}
+	release(): void {
+		this.#bytes = undefined;
 	}
 }
 

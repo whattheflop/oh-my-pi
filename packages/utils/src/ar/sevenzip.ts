@@ -518,6 +518,10 @@ class SevenZipMemberSource implements MemberSource {
 			throw new ArchiveError(`Invalid 7z member '${memberPath}' CRC32 mismatch`);
 		return bytes.slice();
 	}
+
+	release(): void {
+		this.#folder.release();
+	}
 }
 
 class EmptyMemberSource implements MemberSource {

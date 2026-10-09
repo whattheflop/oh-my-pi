@@ -19,9 +19,9 @@ import { removeWithRetries } from "@oh-my-pi/pi-utils";
 // `createAgentSession({ resourceLoader })`. Before the fix the shim never
 // exported the class, so those extensions failed to parse; even once exported,
 // the shim's `createAgentSession` MUST translate the loader's captured state
-// into the SDK's native option surface — otherwise `noExtensions: true` would
-// be silently ignored, re-running discovery inside the subagent and reloading
-// the very extension the caller passed the loader to prevent recursion for.
+// into the SDK's native option surface — otherwise `noExtensions: true` would be
+// silently ignored, re-running discovery inside the subagent and reloading the
+// very extension the caller passed the loader to prevent recursion for.
 // These tests pin both contracts through the public package specifier.
 
 const tempRoots: string[] = [];
@@ -246,12 +246,13 @@ describe("createAgentSession({ resourceLoader }) (issue #4567)", () => {
 		// instead of marooning loader-created extensions on a private bus.
 		expect(forwarded.eventBus).toBeDefined();
 
-		// The reload's already-loaded extension snapshot is routed through
-		// the SDK's `preloadedExtensions` seam. Skipping this branch is
-		// exactly the bug the shim exists to prevent — the SDK would re-run
-		// its own discovery inside the subagent and re-load the caller.
-		expect(forwarded.preloadedExtensions).toBeDefined();
-		expect(forwarded.preloadedExtensions?.extensions).toEqual([]);
+		// Reloaded path extensions are forwarded as detached PreparedExtension
+		// factories, never as session-bound Extension instances. The empty
+		// prepared list is meaningful here: it preserves noExtensions without
+		// triggering SDK discovery.
+		expect(forwarded.preloadedExtensions).toBeUndefined();
+		expect(forwarded.preloadedPreparedExtensions).toEqual([]);
+		expect(forwarded.extensions).toBeUndefined();
 
 		// The loader's captured `noSkills` / `noPromptTemplates` /
 		// `noContextFiles` translate into empty arrays on the SDK options.
@@ -268,5 +269,64 @@ describe("createAgentSession({ resourceLoader }) (issue #4567)", () => {
 		// the running test's cwd rather than the temp dir the loader owns.
 		expect(forwarded.cwd).toBe(tmp);
 		expect(forwarded.agentDir).toBe(tmp);
+	});
+	it("forwards prepared path factories instead of loaded extensions", async () => {
+		const tmp = await mkTempCwd("omp-legacy-prepared-extension-forwarding-");
+		const extensionPath = path.join(tmp, "counted-extension.ts");
+		const counterKey = `__omp_legacy_prepared_${crypto.randomUUID().replaceAll("-", "")}`;
+		await fs.writeFile(
+			extensionPath,
+			`Reflect.set(globalThis, ${JSON.stringify(counterKey)}, Number(Reflect.get(globalThis, ${JSON.stringify(counterKey)}) ?? 0) + 1);\nexport default function countedExtension() {}\n`,
+			"utf8",
+		);
+
+		let captured: CreateAgentSessionOptions | undefined;
+		const spy = vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+			captured = options;
+			return {
+				session: {} as never,
+				extensionsResult: { extensions: [], errors: [], runtime: undefined as never },
+			} as unknown as CreateAgentSessionResult;
+		});
+		const loader = new DefaultResourceLoader({
+			cwd: tmp,
+			agentDir: tmp,
+			settingsManager: Settings.isolated(),
+			additionalExtensionPaths: [extensionPath],
+		});
+
+		await legacyCreateAgentSession({ resourceLoader: loader });
+
+		expect(spy).toHaveBeenCalledTimes(1);
+		expect(Reflect.get(globalThis, counterKey)).toBe(1);
+		expect(captured?.preloadedExtensions).toBeUndefined();
+		const prepared = captured?.preloadedPreparedExtensions?.find(item => item.path === extensionPath);
+		expect(prepared?.factory).toBeTypeOf("function");
+	});
+	it("forwards loader inline factories without sharing bound instances", async () => {
+		const tmp = await mkTempCwd("omp-legacy-inline-extension-forwarding-");
+		const factory = () => {};
+		let captured: CreateAgentSessionOptions | undefined;
+		const spy = vi.spyOn(sdkModule, "createAgentSession").mockImplementation(async options => {
+			captured = options;
+			return {
+				session: {} as never,
+				extensionsResult: { extensions: [], errors: [], runtime: undefined as never },
+			} as unknown as CreateAgentSessionResult;
+		});
+		const loader = new DefaultResourceLoader({
+			cwd: tmp,
+			agentDir: tmp,
+			settingsManager: Settings.isolated(),
+			extensionFactories: [factory],
+		});
+
+		await legacyCreateAgentSession({ resourceLoader: loader });
+
+		expect(spy).toHaveBeenCalledTimes(1);
+		expect(captured?.preloadedExtensions).toBeUndefined();
+		expect(captured?.preloadedPreparedExtensions).toBeDefined();
+		expect(captured?.preloadedPreparedExtensions?.some(prepared => prepared.factory === factory)).toBe(false);
+		expect(captured?.extensions).toEqual([factory]);
 	});
 });

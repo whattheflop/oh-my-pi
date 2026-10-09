@@ -140,9 +140,6 @@ describe("RawSseDebugBuffer", () => {
 		expect(snapshot.droppedChars).toBe(4 * PER_RECORD_CHARS);
 		expect(snapshot.records[0].sequence).toBe(5);
 		expect(snapshot.records[snapshot.records.length - 1].sequence).toBe(12);
-		// #totalChars is not exposed; derive live chars from the conservation
-		// invariant (sum appended − droppedChars) and confirm eviction stopped
-		// exactly at budget rather than over- or under-evicting.
 		const liveChars = APPENDS * PER_RECORD_CHARS - snapshot.droppedChars;
 		expect(liveChars).toBe(8 * PER_RECORD_CHARS);
 		expect(liveChars).toBeLessThanOrEqual(512_000);

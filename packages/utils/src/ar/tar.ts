@@ -54,7 +54,7 @@ interface PendingTarLink {
 }
 
 class TarMemberSource implements MemberSource {
-	readonly #buffer: Uint8Array;
+	#buffer?: Uint8Array;
 	readonly #dataOffset: number;
 	readonly #sparse: boolean;
 
@@ -70,14 +70,20 @@ class TarMemberSource implements MemberSource {
 				`Archive member '${formatArchivePathForError(memberPath)}' is a sparse file and cannot be read`,
 			);
 		}
-		if (size > this.#buffer.byteLength - this.#dataOffset) {
+		const buffer = this.#buffer;
+		if (!buffer) throw new ArchiveError("Archive reader has released its materialized data");
+		if (size > buffer.byteLength - this.#dataOffset) {
 			throw new ArchiveError(`Archive member '${formatArchivePathForError(memberPath)}' is truncated`);
 		}
-		const bytes = this.#buffer.subarray(this.#dataOffset, this.#dataOffset + size);
+		const bytes = buffer.subarray(this.#dataOffset, this.#dataOffset + size);
 		if (bytes.byteLength !== size) {
 			throw new ArchiveError(`Archive member '${formatArchivePathForError(memberPath)}' has an invalid size`);
 		}
 		return bytes;
+	}
+
+	release(): void {
+		this.#buffer = undefined;
 	}
 }
 

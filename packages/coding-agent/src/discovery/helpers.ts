@@ -269,6 +269,8 @@ export interface ParsedAgentFields {
 	prewalk?: boolean | string;
 	/** `true` = advise with the default advisor-role model; string = advise with that model pattern. */
 	advisor?: boolean | string;
+	/** Filesystem extension policy override for children spawned by this agent. */
+	extensions?: "inherit" | "none" | string[];
 }
 
 /**
@@ -347,8 +349,19 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 		if (trimmed) advisor = trimmed;
 	}
 	const autoloadSkills = parseArrayOrCSV(frontmatter.autoloadSkills)
-		?.map(s => s.trim())
+		?.map(skill => skill.trim())
 		.filter(Boolean);
+	// extensions: only the two policy keywords are accepted as scalar values;
+	// arrays (including an explicitly empty array) mean an exact allowlist.
+	let extensions: "inherit" | "none" | string[] | undefined;
+	if (frontmatter.extensions === "inherit" || frontmatter.extensions === "none") {
+		extensions = frontmatter.extensions;
+	} else if (Array.isArray(frontmatter.extensions)) {
+		extensions = frontmatter.extensions
+			.filter((entry): entry is string => typeof entry === "string")
+			.map(entry => entry.trim())
+			.filter(Boolean);
+	}
 	return {
 		name,
 		description,
@@ -362,6 +375,7 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 		readSummarize,
 		prewalk,
 		advisor,
+		extensions,
 	};
 }
 

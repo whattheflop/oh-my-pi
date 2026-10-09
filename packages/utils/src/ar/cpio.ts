@@ -50,7 +50,7 @@ interface LinkTarget {
 }
 
 class CpioMemberSource implements MemberSource {
-	readonly #bytes: Uint8Array;
+	#bytes?: Uint8Array;
 	readonly #offset: number;
 	readonly #size: number;
 	readonly #checksum?: number;
@@ -66,15 +66,21 @@ class CpioMemberSource implements MemberSource {
 		if (size !== this.#size) {
 			throw new ArchiveError(`CPIO member '${memberPath}' has an inconsistent declared size`);
 		}
+		const archive = this.#bytes;
+		if (!archive) throw new ArchiveError("Archive reader has released its materialized data");
 		const end = this.#offset + this.#size;
-		if (end > this.#bytes.byteLength) {
+		if (end > archive.byteLength) {
 			throw new ArchiveError(`CPIO member '${memberPath}' is truncated`);
 		}
-		const bytes = this.#bytes.subarray(this.#offset, end);
+		const bytes = archive.subarray(this.#offset, end);
 		if (this.#checksum !== undefined && checksumBytes(bytes) !== this.#checksum) {
 			throw new ArchiveError(`CPIO member '${memberPath}' has an invalid CRC checksum`);
 		}
 		return bytes;
+	}
+
+	release(): void {
+		this.#bytes = undefined;
 	}
 }
 

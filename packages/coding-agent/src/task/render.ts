@@ -11,7 +11,7 @@ import { formatNumber, sanitizeText } from "@oh-my-pi/pi-utils";
 import { settings } from "../config/settings";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
 import { formatContextUsage } from "../modes/components/status-line/context-thresholds";
-import { getMarkdownTheme, type Theme } from "../modes/theme/theme";
+import { getMarkdownTheme, getThemeEpoch, type Theme } from "../modes/theme/theme";
 import { stripGeneratedOutputNotice, stripRawOutputArtifactNotice } from "../tools/output-meta";
 import {
 	capPreviewLines,
@@ -40,6 +40,16 @@ import { subprocessToolRegistry } from "./subprocess-tool-registry";
 import type { AgentProgress, SingleResult, TaskItem, TaskParams, TaskToolDetails, YieldItem } from "./types";
 import { assembleYieldResult } from "./yield-assembly";
 
+const MAX_NESTED_TASK_RENDER_DEPTH = 8;
+
+/** Per-ToolExecutionComponent cache for assignment/context Markdown sections. */
+export type TaskMarkdownCache = {
+	themeEpoch?: number;
+	theme?: Theme;
+	assignment?: { text: string; renderer: AssignmentSectionRenderer };
+	context?: { text: string; renderer: AssignmentSectionRenderer };
+};
+
 /** Render context threaded in from `ToolExecutionComponent.#buildRenderContext`. */
 interface TaskRenderContext {
 	hasResult?: boolean;
@@ -56,10 +66,9 @@ interface TaskRenderContext {
 	 * committed history. Absent: render with the live clock.
 	 */
 	nowMs?: number;
+	markdownCache?: TaskMarkdownCache;
 }
 type TaskRenderOptions = RenderResultOptions & { renderContext?: TaskRenderContext };
-
-const MAX_NESTED_TASK_RENDER_DEPTH = 8;
 
 function renderNestedCycleLine(theme: Theme): string {
 	return theme.fg("dim", "… nested task progress already shown");
@@ -789,6 +798,38 @@ type AssignmentSectionRenderer = (width: number) => TaskRenderSection;
 const ASSIGNMENT_FRAME_INSET = 3;
 
 /**
+ * Keep the per-execution Markdown sections stable across renderer rebuilds.
+ * The section function still renders at the requested width, so responsive
+ * layout is preserved while spinner/progress-only updates reuse its Markdown
+ * component.
+ */
+function prepareMarkdownCache(cache: TaskMarkdownCache, theme: Theme): void {
+	const epoch = getThemeEpoch();
+	if (cache.themeEpoch === epoch && cache.theme === theme) return;
+	cache.themeEpoch = epoch;
+	cache.theme = theme;
+	cache.assignment = undefined;
+	cache.context = undefined;
+}
+
+function createCachedMarkdownSection(
+	text: string,
+	theme: Theme,
+	cache: TaskMarkdownCache | undefined,
+	kind: "assignment" | "context",
+): AssignmentSectionRenderer {
+	if (cache) {
+		prepareMarkdownCache(cache, theme);
+		const previous = cache[kind];
+		if (previous?.text === text) return previous.renderer;
+		const renderer = createMarkdownSectionRenderer(text, theme);
+		cache[kind] = { text, renderer };
+		return renderer;
+	}
+	return createMarkdownSectionRenderer(text, theme);
+}
+
+/**
  * Build the assignment section (the markdown brief handed to the subagent).
  * Rendered in both the streaming call preview and the result frame so the
  * brief stays visible for the whole task lifecycle — not just until the first
@@ -797,6 +838,7 @@ const ASSIGNMENT_FRAME_INSET = 3;
 function createAssignmentSectionRenderer(
 	args: Partial<TaskParams> | undefined,
 	theme: Theme,
+	cache?: TaskMarkdownCache,
 ): AssignmentSectionRenderer | undefined {
 	// `renderResult` receives the raw tool args (unlike `renderCall`, which is
 	// fed through `repairTaskParams`), so undo any per-field double-encoding
@@ -805,7 +847,7 @@ function createAssignmentSectionRenderer(
 		repairDoubleEncodedJsonString(typeof args?.task === "string" ? args.task : ""),
 	).trim();
 	if (!assignment) return undefined;
-	return createMarkdownSectionRenderer(assignment, theme);
+	return createCachedMarkdownSection(assignment, theme, cache, "assignment");
 }
 
 /**
@@ -816,12 +858,13 @@ function createAssignmentSectionRenderer(
 function createContextSectionRenderer(
 	args: Partial<TaskParams> | undefined,
 	theme: Theme,
+	cache?: TaskMarkdownCache,
 ): AssignmentSectionRenderer | undefined {
 	const context = sanitizeText(
 		repairDoubleEncodedJsonString(typeof args?.context === "string" ? args.context : ""),
 	).trim();
 	if (!context) return undefined;
-	return createMarkdownSectionRenderer(context, theme);
+	return createCachedMarkdownSection(context, theme, cache, "context");
 }
 
 function createMarkdownSectionRenderer(text: string, theme: Theme): AssignmentSectionRenderer {
@@ -847,8 +890,8 @@ export function renderCall(args: TaskParams, options: TaskRenderOptions, theme: 
 		},
 		theme,
 	);
-	const assignmentSection = createAssignmentSectionRenderer(args, theme);
-	const contextSection = createContextSectionRenderer(args, theme);
+	const assignmentSection = createAssignmentSectionRenderer(args, theme, options.renderContext?.markdownCache);
+	const contextSection = createContextSectionRenderer(args, theme, options.renderContext?.markdownCache);
 	return framedBlock(theme, width => {
 		const sections: Array<{ label?: string; lines: readonly string[]; separator?: boolean }> = [];
 
@@ -1489,8 +1532,8 @@ export function renderResult(
 	const fallbackText = result.content.find(c => c.type === "text")?.text ?? "";
 	const details = result.details;
 	const agentLabel = formatAgentHeaderLabel(args);
-	const assignmentSection = createAssignmentSectionRenderer(args, theme);
-	const contextSection = createContextSectionRenderer(args, theme);
+	const assignmentSection = createAssignmentSectionRenderer(args, theme, options.renderContext?.markdownCache);
+	const contextSection = createContextSectionRenderer(args, theme, options.renderContext?.markdownCache);
 
 	if (!details) {
 		const text = result.content.find(c => c.type === "text")?.text || "";

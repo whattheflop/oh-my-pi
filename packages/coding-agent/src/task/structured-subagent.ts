@@ -24,6 +24,7 @@ import { buildOutputValidator } from "../tools/output-schema-validator";
 import { trackLateCleanup } from "../utils/late-cleanup";
 import { type DiscoveryResult, discoverAgents, getAgent } from "./discovery";
 import { type ExecutorOptions, runSubprocess } from "./executor";
+import { filterTaskExtensionPreloads, resolveTaskExtensionPolicy, type TaskExtensionPolicy } from "./extension-policy";
 import {
 	applyEligibleNestedPatches,
 	type IsolationContext,
@@ -147,6 +148,7 @@ export interface EffectiveSubagentPolicy {
 	applyChanges: boolean;
 	enableLsp: boolean;
 	enableIrc: boolean;
+	extensionPolicy: TaskExtensionPolicy;
 }
 
 /** Settled child execution plus data needed by the frontends' own rendering. */
@@ -312,6 +314,13 @@ export async function resolveEffectiveSubagentPolicy(
 	const { patterns: modelOverride, role: modelRole } = resolveAgentModelSelection(modelResolution);
 	const isolationEnabled = request.session.settings.get("task.isolation.enabled");
 	const isIsolated = request.isolation?.requested === true;
+	const extensionPolicy = resolveTaskExtensionPolicy({
+		settingsMode: request.session.settings.get("task.extensions.mode"),
+		settingsAllowlist: request.session.settings.get("task.extensions.allowlist"),
+		inherited: request.session.taskExtensionPolicy,
+		agentOverride: effectiveAgent.extensions,
+		restricted: planMode || request.session.restrictToolNames === true,
+	});
 	if (isIsolated && !isolationEnabled) {
 		throw new StructuredSubagentError(
 			"preflight",
@@ -341,6 +350,7 @@ export async function resolveEffectiveSubagentPolicy(
 			(request.enableIrc ??
 				(request.session.enableIrc !== false &&
 					isIrcEnabled(request.session.settings, request.session.taskDepth ?? 0))),
+		extensionPolicy,
 	};
 }
 
@@ -402,6 +412,11 @@ function buildExecutorOptions(
 	};
 	const restrictToolNames = policy.planMode || session.restrictToolNames === true;
 	const enableMCP = !restrictToolNames && (session.enableMCP ?? true);
+	const extensionPreloads = filterTaskExtensionPreloads(
+		policy.extensionPolicy,
+		session.preparedExtensions,
+		session.extensionPaths,
+	);
 	return {
 		cwd: session.cwd,
 		additionalDirectories: session.additionalDirectories,
@@ -463,8 +478,9 @@ function buildExecutorOptions(
 		// recursive sub-discovery; preloaded paths only avoid re-scanning/reusing
 		// parent-bound extension instances while constructing the child.
 		extensionRoots: session.effectiveExtensionRoots?.bind(session),
-		preloadedExtensionPaths: restrictToolNames ? [] : session.extensionPaths,
-		preloadedPreparedExtensions: restrictToolNames ? [] : session.preparedExtensions,
+		preloadedExtensionPaths: restrictToolNames ? [] : extensionPreloads.paths,
+		preloadedPreparedExtensions: restrictToolNames ? [] : extensionPreloads.prepared,
+		taskExtensionPolicy: policy.extensionPolicy,
 		preloadedCustomToolPaths: restrictToolNames ? [] : session.customToolPaths,
 		localProtocolOptions,
 		parentArtifactManager: session.getArtifactManager?.() ?? undefined,

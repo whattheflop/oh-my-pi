@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ArchiveError } from "../../src/ar/error";
 import { type ArchiveLimits, DEFAULT_ARCHIVE_LIMITS } from "../../src/ar/limits";
+import { ArchiveReader } from "../../src/ar/reader";
 import { memoryByteSource } from "../../src/ar/source";
 import { encodeTar, readTar, readTarEntriesFromBuffer, sniffTar } from "../../src/ar/tar";
 import type { ArchiveIndexEntry, FormatReadOptions } from "../../src/ar/types";
@@ -36,6 +37,17 @@ describe("tar reader", () => {
 		expect(entryAt(entries, "nested").isDirectory).toBe(true);
 		expect(entryAt(entries, "nested/data.bin").mode).toBe(0o755);
 		expect([...(await memberBytes(entryAt(entries, "nested/data.bin")))]).toEqual([0, 1, 2, 255]);
+	});
+
+	test("releases materialized archive storage after extracted output is consumed", async () => {
+		const bytes = await encodeTar([["report.txt", new TextEncoder().encode("report output\n")]]);
+		const reader = new ArchiveReader("tar", index(bytes));
+		const extracted = await reader.readFile("report.txt");
+
+		reader.release();
+
+		expect(new TextDecoder().decode(extracted.bytes)).toBe("report output\n");
+		await expect(reader.readFile("report.txt")).rejects.toThrow("released its materialized data");
 	});
 
 	test("reads a whole ByteSource once and rejects short source reads", async () => {

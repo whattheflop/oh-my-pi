@@ -394,7 +394,7 @@ function processExtendedHeader(
 }
 
 class LzhMemberSource implements MemberSource {
-	readonly #archive: Uint8Array;
+	#archive?: Uint8Array;
 	readonly #start: number;
 	readonly #packedSize: number;
 	readonly #method: string;
@@ -409,7 +409,9 @@ class LzhMemberSource implements MemberSource {
 	}
 
 	async read(size: number, memberPath: string): Promise<Uint8Array> {
-		const packed = this.#archive.subarray(this.#start, this.#start + this.#packedSize);
+		const archive = this.#archive;
+		if (!archive) throw new ArchiveError("Archive reader has released its materialized data");
+		const packed = archive.subarray(this.#start, this.#start + this.#packedSize);
 		let output: Uint8Array;
 		switch (this.#method) {
 			case "-lh0-":
@@ -443,6 +445,10 @@ class LzhMemberSource implements MemberSource {
 		if (crc16Arc(output) !== this.#crc)
 			throw new ArchiveError(`LZH member '${memberPath}' failed CRC-16 verification`);
 		return output;
+	}
+
+	release(): void {
+		this.#archive = undefined;
 	}
 }
 

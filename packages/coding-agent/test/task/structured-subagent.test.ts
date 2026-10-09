@@ -11,6 +11,7 @@ import * as planHandoff from "@oh-my-pi/pi-coding-agent/plan-mode/plan-handoff";
 import * as discoveryModule from "@oh-my-pi/pi-coding-agent/task/discovery";
 import { createEvalCustomTools } from "@oh-my-pi/pi-coding-agent/task/eval-tools";
 import * as executorModule from "@oh-my-pi/pi-coding-agent/task/executor";
+import type { TaskExtensionMode, TaskExtensionPolicy } from "@oh-my-pi/pi-coding-agent/task/extension-policy";
 import * as isolationRunner from "@oh-my-pi/pi-coding-agent/task/isolation-runner";
 import {
 	buildStructuredSubagentRecoveryHint,
@@ -39,6 +40,9 @@ function session(
 		isolationEnabled?: boolean;
 		isolationApply?: boolean;
 		modelRoles?: Record<string, string>;
+		extensionMode?: TaskExtensionMode;
+		extensionAllowlist?: string[];
+		inheritedExtensionPolicy?: TaskExtensionPolicy;
 	} = {},
 ): ToolSession {
 	return {
@@ -50,12 +54,15 @@ function session(
 			"task.isolation.enabled": options.isolationEnabled ?? false,
 			"isolation.backend": "rcopy",
 			"task.enableLsp": true,
+			...(options.extensionMode ? { "task.extensions.mode": options.extensionMode } : {}),
+			...(options.extensionAllowlist ? { "task.extensions.allowlist": options.extensionAllowlist } : {}),
 			...(options.modelRoles ? { modelRoles: options.modelRoles } : {}),
 			...(options.isolationApply !== undefined ? { "task.isolation.apply": options.isolationApply } : {}),
 		}),
 		getSessionFile: () => null,
 		getSessionSpawns: () => "*",
 		getPlanModeState: () => (options.planMode ? { enabled: true } : undefined),
+		taskExtensionPolicy: options.inheritedExtensionPolicy,
 	} as unknown as ToolSession;
 }
 
@@ -182,6 +189,21 @@ describe("structured subagent primitive", () => {
 		);
 		expect(discover).not.toHaveBeenCalled();
 	});
+	it("resolves subagent extension policy with agent precedence and restricted-child supremacy", async () => {
+		mockDiscovery({ ...AGENT, extensions: ["extension-module:workflow"] });
+		const policy = await resolveEffectiveSubagentPolicy(
+			request({ session: session({ extensionMode: "none", extensionAllowlist: [] }) }),
+		);
+		expect(policy.extensionPolicy).toEqual({
+			mode: "allowlist",
+			allowlist: ["extension-module:workflow"],
+		});
+
+		const restricted = await resolveEffectiveSubagentPolicy(
+			request({ session: session({ planMode: true, extensionMode: "inherit" }) }),
+		);
+		expect(restricted.extensionPolicy).toEqual({ mode: "none", allowlist: [] });
+	});
 	it("reloads model roles before resolving an agent added during the session", async () => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-task-hot-reload-"));
 		const projectDir = path.join(root, "project");
@@ -230,6 +252,32 @@ describe("structured subagent primitive", () => {
 		expect(settled.result.modelRole).toBe("reviewer");
 		await fs.rm(settled.artifactsDir, { recursive: true, force: true });
 	});
+	it("forwards prepared extension factories through the structured child boundary", async () => {
+		mockDiscovery();
+		const childSession = session();
+		const prepared = [
+			{
+				path: "/tmp/parent-extension.ts",
+				resolvedPath: "/tmp/parent-extension.ts",
+				factory: () => {},
+				error: null,
+			},
+		];
+		childSession.extensionPaths = ["/tmp/parent-extension.ts"];
+		childSession.preparedExtensions = prepared;
+		const dispatched: executorModule.ExecutorOptions[] = [];
+		vi.spyOn(executorModule, "runSubprocess").mockImplementation(async options => {
+			dispatched.push(options);
+			return result();
+		});
+
+		const settled = await runStructuredSubagent(request({ session: childSession }));
+		expect(settled.result.exitCode).toBe(0);
+		expect(dispatched[0]?.preloadedExtensionPaths).toBe(childSession.extensionPaths);
+		expect(dispatched[0]?.preloadedPreparedExtensions).toBe(prepared);
+		await fs.rm(settled.artifactsDir, { recursive: true, force: true });
+	});
+
 	it("does not treat a spawn handle as the HUD description", async () => {
 		mockDiscovery();
 		const dispatched: executorModule.ExecutorOptions[] = [];

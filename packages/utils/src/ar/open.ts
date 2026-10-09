@@ -110,10 +110,14 @@ export async function listArchiveRoot(
 	opts: { limit?: number } = {},
 ): Promise<string> {
 	const archive = await openArchive({ bytes, format });
-	const entries = archive.listDirectory("");
-	const limitedEntries = opts.limit !== undefined && opts.limit > 0 ? entries.slice(0, opts.limit) : entries;
-	const lines = formatArchiveEntryLines(limitedEntries);
-	return lines.length > 0 ? lines.join("\n") : "(empty archive directory)";
+	try {
+		const entries = archive.listDirectory("");
+		const limitedEntries = opts.limit !== undefined && opts.limit > 0 ? entries.slice(0, opts.limit) : entries;
+		const lines = formatArchiveEntryLines(limitedEntries);
+		return lines.length > 0 ? lines.join("\n") : "(empty archive directory)";
+	} finally {
+		archive.release();
+	}
 }
 
 /**
@@ -127,18 +131,25 @@ export async function readArchiveEntries(
 	options: OpenArchiveOptions = {},
 ): Promise<Map<string, Uint8Array>> {
 	const archive = await openArchive(input, options);
-	const entries = new Map<string, Uint8Array>();
-	let total = 0;
-	for (const entry of archive.indexEntries()) {
-		if (entry.isDirectory) continue;
-		// Whole-archive materialization flattens file aliases; dangling or
-		// unresolved links are unreadable and throw, matching the reader.
-		const file = await archive.readFile(entry.path);
-		entries.set(entry.path, file.bytes);
-		total += file.bytes.byteLength;
-		assertInMemorySize(total, archive.limits);
+	try {
+		const entries = new Map<string, Uint8Array>();
+		let total = 0;
+		for (const entry of archive.indexEntries()) {
+			if (entry.isDirectory) continue;
+			// Whole-archive materialization flattens file aliases; dangling or
+			// unresolved links are unreadable and throw, matching the reader.
+			const file = await archive.readFile(entry.path);
+			// Detach returned members from format-owned solid/archive buffers so
+			// release() can drop the full backing store before this map escapes.
+			const bytes = file.bytes.slice();
+			entries.set(entry.path, bytes);
+			total += bytes.byteLength;
+			assertInMemorySize(total, archive.limits);
+		}
+		return entries;
+	} finally {
+		archive.release();
 	}
-	return entries;
 }
 
 /** Convert member content for packing: strings become UTF-8 bytes. */
@@ -166,60 +177,64 @@ export async function extractArchive(
 	options: OpenArchiveOptions = {},
 ): Promise<number> {
 	const archive = await openArchive(input, options);
-	const extractRoot = path.resolve(destDir);
-	await fs.mkdir(extractRoot, { recursive: true });
-	let count = 0;
+	try {
+		const extractRoot = path.resolve(destDir);
+		await fs.mkdir(extractRoot, { recursive: true });
+		let count = 0;
 
-	// Directories first so empty ones materialize, then files, then symlinks
-	// (a symlink's target may be created after it in index order).
-	const files: { path: string; mode?: number }[] = [];
-	const links: { path: string; target: string }[] = [];
-	for (const entry of archive.indexEntries()) {
-		const outputPath = path.resolve(extractRoot, entry.path);
-		if (outputPath !== extractRoot && !outputPath.startsWith(extractRoot + path.sep)) {
-			throw new ArchiveError(`Archive entry escapes extraction dir: ${entry.path}`);
-		}
-		if (entry.isDirectory) {
-			if (entry.storage?.type !== "link") {
-				await fs.mkdir(outputPath, { recursive: true });
-				count++;
+		// Directories first so empty ones materialize, then files, then symlinks
+		// (a symlink's target may be created after it in index order).
+		const files: { path: string; mode?: number }[] = [];
+		const links: { path: string; target: string }[] = [];
+		for (const entry of archive.indexEntries()) {
+			const outputPath = path.resolve(extractRoot, entry.path);
+			if (outputPath !== extractRoot && !outputPath.startsWith(extractRoot + path.sep)) {
+				throw new ArchiveError(`Archive entry escapes extraction dir: ${entry.path}`);
 			}
-			continue;
+			if (entry.isDirectory) {
+				if (entry.storage?.type !== "link") {
+					await fs.mkdir(outputPath, { recursive: true });
+					count++;
+				}
+				continue;
+			}
+			if (entry.storage?.type === "link") {
+				links.push({ path: entry.path, target: entry.storage.targetPath });
+				continue;
+			}
+			files.push({ path: entry.path, mode: entry.mode });
 		}
-		if (entry.storage?.type === "link") {
-			links.push({ path: entry.path, target: entry.storage.targetPath });
-			continue;
-		}
-		files.push({ path: entry.path, mode: entry.mode });
-	}
 
-	for (const file of files) {
-		const extracted = await archive.readFile(file.path);
-		const outputPath = path.resolve(extractRoot, file.path);
-		await Bun.write(outputPath, extracted.bytes);
-		const permissions = (file.mode ?? 0) & 0o777;
-		if (permissions) await fs.chmod(outputPath, permissions);
-		count++;
-	}
-
-	for (const link of links) {
-		const outputPath = path.resolve(extractRoot, link.path);
-		// Reader link targets are archive-root-relative (raw targets survive
-		// only for links that escape the root, which cannot be materialized).
-		// Rewrite to a target relative to the link's own directory so the
-		// symlink resolves correctly on disk.
-		const normalizedTarget = normalizeArchiveLookupPath(link.target);
-		if (normalizedTarget === undefined) {
-			throw new ArchiveError(`Archive symlink escapes extraction dir: ${link.path} -> ${link.target}`);
+		for (const file of files) {
+			const extracted = await archive.readFile(file.path);
+			const outputPath = path.resolve(extractRoot, file.path);
+			await Bun.write(outputPath, extracted.bytes);
+			const permissions = (file.mode ?? 0) & 0o777;
+			if (permissions) await fs.chmod(outputPath, permissions);
+			count++;
 		}
-		const resolvedTarget = path.resolve(extractRoot, normalizedTarget);
-		if (resolvedTarget !== extractRoot && !resolvedTarget.startsWith(extractRoot + path.sep)) {
-			throw new ArchiveError(`Archive symlink escapes extraction dir: ${link.path} -> ${link.target}`);
-		}
-		await fs.mkdir(path.dirname(outputPath), { recursive: true });
-		await fs.symlink(path.relative(path.dirname(outputPath), resolvedTarget) || ".", outputPath);
-		count++;
-	}
 
-	return count;
+		for (const link of links) {
+			const outputPath = path.resolve(extractRoot, link.path);
+			// Reader link targets are archive-root-relative (raw targets survive
+			// only for links that escape the root, which cannot be materialized).
+			// Rewrite to a target relative to the link's own directory so the
+			// symlink resolves correctly on disk.
+			const normalizedTarget = normalizeArchiveLookupPath(link.target);
+			if (normalizedTarget === undefined) {
+				throw new ArchiveError(`Archive symlink escapes extraction dir: ${link.path} -> ${link.target}`);
+			}
+			const resolvedTarget = path.resolve(extractRoot, normalizedTarget);
+			if (resolvedTarget !== extractRoot && !resolvedTarget.startsWith(extractRoot + path.sep)) {
+				throw new ArchiveError(`Archive symlink escapes extraction dir: ${link.path} -> ${link.target}`);
+			}
+			await fs.mkdir(path.dirname(outputPath), { recursive: true });
+			await fs.symlink(path.relative(path.dirname(outputPath), resolvedTarget) || ".", outputPath);
+			count++;
+		}
+
+		return count;
+	} finally {
+		archive.release();
+	}
 }

@@ -55,6 +55,25 @@ const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 200;
 const DEFAULT_GLOB_TIMEOUT_MS = 5000;
 
+const GLOB_TOOL_EXAMPLES: readonly ToolExample<typeof findSchema.infer>[] = Object.freeze([
+	Object.freeze({
+		caption: "Glob files",
+		call: Object.freeze({ path: "src/**/*.ts" }),
+	}),
+	Object.freeze({
+		caption: "Multiple targets — semicolon-delimited list",
+		call: Object.freeze({ path: "src/**/*.ts; test/**/*.ts" }),
+	}),
+	Object.freeze({
+		caption: "Glob gitignored files like .env",
+		call: Object.freeze({ path: ".env*", gitignore: false }),
+	}),
+	Object.freeze({
+		caption: "Glob directories matching a name (returns both files and dirs; directories are suffixed with `/`)",
+		call: Object.freeze({ path: "**/tests" }),
+	}),
+]);
+
 export interface GlobToolDetails {
 	truncation?: TruncationResult;
 	resultLimitReached?: number;
@@ -128,24 +147,7 @@ export class GlobTool implements AgentTool<typeof findSchema, GlobToolDetails> {
 	}
 	readonly parameters = findSchema;
 
-	readonly examples: readonly ToolExample<typeof findSchema.infer>[] = [
-		{
-			caption: "Glob files",
-			call: { path: "src/**/*.ts" },
-		},
-		{
-			caption: "Multiple targets — semicolon-delimited list",
-			call: { path: "src/**/*.ts; test/**/*.ts" },
-		},
-		{
-			caption: "Glob gitignored files like .env",
-			call: { path: ".env*", gitignore: false },
-		},
-		{
-			caption: "Glob directories matching a name (returns both files and dirs; directories are suffixed with `/`)",
-			call: { path: "**/tests" },
-		},
-	];
+	readonly examples = GLOB_TOOL_EXAMPLES;
 	readonly strict = true;
 
 	readonly #customOps?: GlobOperations;

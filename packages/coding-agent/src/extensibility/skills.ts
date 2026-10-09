@@ -182,16 +182,21 @@ export async function loadSkills(options: LoadSkillsOptions = {}): Promise<LoadS
 	const realPathSet = new Set<string>();
 	const collisionWarnings: SkillWarning[] = [];
 
+	// Compile configured patterns once per load. Matching many discovered skills
+	// should not repeatedly parse the same glob expression.
+	const includeGlobs = includeSkills.map(pattern => new Bun.Glob(pattern));
+	const ignoredGlobs = ignoredSkills.map(pattern => new Bun.Glob(pattern));
+
 	// Check if skill name matches any of the include patterns
 	function matchesIncludePatterns(name: string): boolean {
-		if (includeSkills.length === 0) return true;
-		return includeSkills.some(pattern => new Bun.Glob(pattern).match(name));
+		if (includeGlobs.length === 0) return true;
+		return includeGlobs.some(glob => glob.match(name));
 	}
 
 	// Check if skill name matches any of the ignore patterns
 	function matchesIgnorePatterns(name: string): boolean {
-		if (ignoredSkills.length === 0) return false;
-		return ignoredSkills.some(pattern => new Bun.Glob(pattern).match(name));
+		if (ignoredGlobs.length === 0) return false;
+		return ignoredGlobs.some(glob => glob.match(name));
 	}
 
 	const disabledSkillNames = new Set(

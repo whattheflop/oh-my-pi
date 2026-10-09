@@ -437,8 +437,9 @@ const streamOpenAIResponsesOnce = (
 										? parsed.object
 										: null;
 							if (resolvedEvent) {
+								// Keep the normalized event name for progress/terminal handling,
+								// but preserve the exact incoming raw SSE lines for diagnostics.
 								event.event = resolvedEvent;
-								event.raw = [`event: ${resolvedEvent}`, ...event.raw];
 							}
 						} catch {}
 					}

@@ -30,6 +30,7 @@ import type { UsageStatistics } from "../session/session-entries";
 import type { SessionManager } from "../session/session-manager";
 import type { ToolChoiceQueue } from "../session/tool-choice-queue";
 import { TaskTool } from "../task";
+import type { TaskExtensionPolicy } from "../task/extension-policy";
 import type { AgentOutputManager } from "../task/output-manager";
 import { canSpawnAtDepth, type StructuredSubagentSchemaMode } from "../task/types";
 import type { WorkPoolYieldItem } from "../task/workpool-yield";
@@ -207,6 +208,8 @@ export interface ToolSession {
 	 * (`<inline-N>`) are NOT included — those are session-local.
 	 */
 	extensionPaths?: string[];
+	/** Effective filesystem extension policy inherited by nested task children. */
+	taskExtensionPolicy?: TaskExtensionPolicy;
 	/** Imported extension factories safe to rebind in child sessions. */
 	preparedExtensions?: PreparedExtension[];
 	/**

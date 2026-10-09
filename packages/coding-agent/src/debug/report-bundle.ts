@@ -78,6 +78,8 @@ export interface DebugLogSource {
  * - raw-sse.txt: Recent raw provider SSE diagnostics (when captured)
  * - profile.md: Markdown CPU profile (performance report only)
  * - heap.heapsnapshot: Heap snapshot (memory report only)
+ * - heap.jsc.json: Native JavaScriptCore heap graph for Safari/WebKit Inspector (memory reports only)
+ * - memory-stats.json: GC-normalized JSC heap/object counts and process memory (memory reports only)
  * - work.folded: Work profile folded stacks (work report only)
  * - work.md: Work profile summary (work report only)
  * - work.svg: Work profile flamegraph (work report only)
@@ -148,10 +150,23 @@ export async function createReportBundle(options: ReportBundleOptions): Promise<
 		files.push("profile.md");
 	}
 
-	// Heap snapshot
+	// Heap snapshot and the pre-snapshot counters used to explain native/JSC
+	// allocator growth without counting the snapshot's own large JSON string.
 	if (options.heapSnapshot) {
 		data["heap.heapsnapshot"] = options.heapSnapshot.data;
 		files.push("heap.heapsnapshot");
+		data["heap.jsc.json"] = options.heapSnapshot.jscData;
+		files.push("heap.jsc.json");
+		data["memory-stats.json"] = JSON.stringify(
+			{
+				jscHeap: options.heapSnapshot.jscHeap,
+				jscProcessMemory: options.heapSnapshot.jscProcessMemory,
+				processMemory: options.heapSnapshot.processMemory,
+			},
+			null,
+			2,
+		);
+		files.push("memory-stats.json");
 	}
 
 	// Work profile

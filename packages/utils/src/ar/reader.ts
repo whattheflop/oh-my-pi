@@ -8,6 +8,7 @@ import type {
 	ArchiveIndexEntry,
 	ArchiveNode,
 	ExtractedArchiveFile,
+	MemberSource,
 } from "./types";
 
 /** Raise the canonical error for a symlink whose target cannot be materialized. */
@@ -37,6 +38,18 @@ export class ArchiveReader {
 		ensureParentDirectories(this.#entries, limits);
 	}
 
+	/**
+	 * Release format-owned materialized buffers after extracted output has
+	 * been consumed. File-backed lazy sources are unaffected.
+	 */
+	release(): void {
+		const released = new Set<MemberSource>();
+		for (const entry of this.#entries.values()) {
+			if (entry.storage?.type !== "member" || released.has(entry.storage.source)) continue;
+			released.add(entry.storage.source);
+			entry.storage.source.release?.();
+		}
+	}
 	/**
 	 * Raw index entries, including link records and synthesized directories.
 	 * For extraction/merge flows that need storage kinds; path lookups should

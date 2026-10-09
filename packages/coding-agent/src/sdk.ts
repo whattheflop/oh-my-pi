@@ -189,6 +189,11 @@ import {
 	loadProjectContextFiles as loadContextFilesInternal,
 	projectSystemPromptToolMetadata,
 } from "./system-prompt";
+import {
+	filterTaskExtensionPaths,
+	filterTaskExtensionPreloads,
+	type TaskExtensionPolicy,
+} from "./task/extension-policy";
 import { AgentOutputManager } from "./task/output-manager";
 import { wrapStreamFnWithProviderConcurrency } from "./task/provider-concurrency";
 import { isScoutSpawnable } from "./task/spawn-policy";
@@ -493,6 +498,8 @@ export interface CreateAgentSessionOptions {
 	 * @internal
 	 */
 	preloadedPreparedExtensions?: readonly PreparedExtension[];
+	/** Effective task-child filesystem extension policy, inherited by nested tasks. */
+	taskExtensionPolicy?: TaskExtensionPolicy;
 	/**
 	 * Pre-discovered custom-tool source paths from `.omp/tools/`, `.claude/tools/`,
 	 * plugins, etc. When provided, the filesystem-scan inside
@@ -1790,6 +1797,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			lspReadOnly,
 			enableIrc: restrictToolNames ? false : options.enableIrc,
 			restrictToolNames,
+			taskExtensionPolicy: options.taskExtensionPolicy,
 			get hasEditTool() {
 				const requestedToolNames = options.toolNames ? normalizeToolNames(options.toolNames) : undefined;
 				return restrictToolNames
@@ -2122,9 +2130,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// the flag and pre-resolved the result already reflects that choice.
 		let extensionPaths: string[];
 		let extensionsResult: LoadExtensionsResult;
+		const extensionPolicy = options.taskExtensionPolicy ?? { mode: "inherit" as const, allowlist: [] };
 		if (restrictToolNames) {
-			// Allocate a session runtime without evaluating caller-provided extension
-			// instances, paths, or factories.
 			extensionPaths = [];
 			extensionsResult = await loadExtensions([], cwd, eventBus);
 		} else if (options.preloadedExtensions) {
@@ -2132,17 +2139,17 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				...options.preloadedExtensions,
 				extensions: [...options.preloadedExtensions.extensions],
 			};
-			// Capture paths for downstream forwarding; filter inline-factory
-			// entries (`<inline-N>`) — those are per-session, not source paths.
 			extensionPaths = extensionsResult.extensions
 				.map(ext => ext.resolvedPath)
 				.filter(p => !p.startsWith("<inline"));
 		} else if (options.preloadedPreparedExtensions) {
-			extensionPaths = options.preloadedPreparedExtensions.map(prepared => prepared.path);
+			const prepared =
+				filterTaskExtensionPreloads(extensionPolicy, options.preloadedPreparedExtensions, undefined).prepared ?? [];
+			extensionPaths = prepared.map(preparedExtension => preparedExtension.path);
 			extensionsResult = await logger.time(
 				"bindPreparedExtensions",
 				bindPreparedExtensions,
-				options.preloadedPreparedExtensions,
+				prepared,
 				cwd,
 				eventBus,
 			);
@@ -2150,15 +2157,18 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				logger.error("Failed to bind extension", { path, error });
 			}
 		} else if (options.preloadedExtensionPaths) {
-			extensionPaths = options.preloadedExtensionPaths;
+			extensionPaths =
+				filterTaskExtensionPaths(extensionPolicy, options.preloadedExtensionPaths) ??
+				options.preloadedExtensionPaths;
 			extensionsResult = await logger.time("loadExtensions", loadExtensions, extensionPaths, cwd, eventBus);
 			for (const { path, error } of extensionsResult.errors) {
 				logger.error("Failed to load extension", { path, error });
 			}
 		} else {
-			extensionPaths = await logger.time("discoverSessionExtensionPaths", () =>
+			const discoveredPaths = await logger.time("discoverSessionExtensionPaths", () =>
 				discoverSessionExtensionPaths(options, cwd, settings),
 			);
+			extensionPaths = filterTaskExtensionPaths(extensionPolicy, discoveredPaths) ?? discoveredPaths;
 			extensionsResult = await logger.time("loadExtensions", loadExtensions, extensionPaths, cwd, eventBus);
 			for (const { path, error } of extensionsResult.errors) {
 				logger.error("Failed to load extension", { path, error });
@@ -3186,10 +3196,12 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			}
 			const customPrompt =
 				typeof options.systemPrompt === "function"
-					? options.systemPrompt(defaultPrompt.systemPrompt)
+					? options.systemPrompt(defaultPrompt.systemPrompt.slice())
 					: options.systemPrompt;
 			return {
-				systemPrompt: typeof customPrompt === "string" ? [customPrompt] : customPrompt,
+				// Keep callback/caller-owned arrays session-local. The default prompt
+				// itself is frozen so append-only contexts can retain it by reference.
+				systemPrompt: typeof customPrompt === "string" ? [customPrompt] : customPrompt.slice(),
 			};
 		};
 

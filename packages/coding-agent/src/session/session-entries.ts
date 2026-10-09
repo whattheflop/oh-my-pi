@@ -7,6 +7,7 @@ import type {
 	TextContent,
 	Usage,
 } from "@oh-my-pi/pi-ai";
+import type { TaskExtensionPolicy } from "../task/extension-policy";
 import type { StructuredSubagentSchemaMode } from "../task/types";
 import type { CompactionMethod } from "./compaction-methods";
 
@@ -257,6 +258,8 @@ export interface SessionInitEntry extends SessionEntryBase {
 	readSummarize?: boolean;
 	/** Effective advisor for this subagent: `"on"` = advisor-role model, else an explicit model pattern; absent = unadvised. */
 	advisor?: string;
+	/** Effective filesystem extension policy used to construct this subagent. */
+	taskExtensionPolicy?: TaskExtensionPolicy;
 }
 
 /** Mode change entry - tracks agent mode transitions (e.g. plan mode). */

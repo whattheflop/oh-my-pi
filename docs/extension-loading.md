@@ -115,6 +115,25 @@ it is not a whole-process capability-isolation switch. Skills, MCP servers,
 tools, prompts, and rules owned by other discovery subsystems retain their own
 enable/disable controls.
 
+### Control task-subagent extension modules
+
+Task children inherit the parent's prepared filesystem extension modules by
+default. Configure the policy without changing the interactive parent:
+
+```yaml
+task:
+  extensions:
+    mode: none # inherit | none | allowlist
+    allowlist:
+      - extension-module:workflow
+```
+
+`none` suppresses inherited modules and child discovery. `allowlist` forwards
+only exact `extension-module:<derivedName>` ids. Agent frontmatter overrides
+the setting with `extensions: inherit`, `extensions: none`, or an array of
+allowed ids. Restricted children always receive no filesystem extension
+modules; isolated worktree tasks continue rediscovering inside their own cwd.
+
 ### Disable specific extension modules
 
 `disabledExtensions` setting filters by extension id format:

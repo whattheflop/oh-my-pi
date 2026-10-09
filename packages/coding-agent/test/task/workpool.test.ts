@@ -33,6 +33,7 @@ const POLICY = {
 	applyChanges: true,
 	enableLsp: false,
 	enableIrc: true,
+	extensionPolicy: { mode: "inherit", allowlist: [] },
 } satisfies EffectiveSubagentPolicy;
 
 const managers = new Set<AsyncJobManager>();

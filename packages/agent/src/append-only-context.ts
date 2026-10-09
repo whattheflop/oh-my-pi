@@ -339,7 +339,9 @@ export class AppendOnlyContextManager {
 // ---------------------------------------------------------------------------
 
 function takeSnapshot(context: AgentContext, options: BuildOptions): StablePrefixSnapshot {
-	const systemPrompt = [...context.systemPrompt];
+	// Prompt builders publish frozen block arrays. Keep those immutable arrays by
+	// reference; arbitrary callers still get an isolated snapshot.
+	const systemPrompt = Object.isFrozen(context.systemPrompt) ? context.systemPrompt : [...context.systemPrompt];
 	const tools =
 		normalizeTools(context.tools, {
 			injectIntent: options.intentTracing,

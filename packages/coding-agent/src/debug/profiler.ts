@@ -2,6 +2,8 @@
  * CPU and heap profiling wrappers for debug reports.
  */
 
+import { fullGC, type HeapStats, heapStats, type MemoryUsage, memoryUsage } from "bun:jsc";
+
 export interface CpuProfile {
 	data: string;
 	markdown: string;
@@ -149,6 +151,10 @@ export async function startCpuProfile(): Promise<ProfilerSession> {
 
 export interface HeapSnapshot {
 	data: string;
+	jscData: string;
+	jscHeap: HeapStats;
+	jscProcessMemory: MemoryUsage;
+	processMemory: NodeJS.MemoryUsage;
 }
 
 /**
@@ -156,13 +162,17 @@ export interface HeapSnapshot {
  * Uses Bun's built-in generateHeapSnapshot.
  */
 export function generateHeapSnapshotData(): HeapSnapshot {
-	// Force GC before snapshot
-	Bun.gc(true);
+	fullGC();
 
-	// Use V8 format for Chrome DevTools compatibility
-	const snapshot = Bun.generateHeapSnapshot("v8");
+	// Capture counters before serializing the snapshot itself. The snapshot is a
+	// large string and would otherwise pollute the memory report it describes.
+	const jscHeap = heapStats();
+	const jscProcessMemory = memoryUsage();
+	const processMemory = process.memoryUsage();
+	// Take the V8-compatible graph first so the native graph object/string cannot
+	// appear as artificial retained memory inside it.
+	const data = Bun.generateHeapSnapshot("v8");
+	const jscData = JSON.stringify(Bun.generateHeapSnapshot("jsc"));
 
-	return {
-		data: snapshot,
-	};
+	return { data, jscData, jscHeap, jscProcessMemory, processMemory };
 }

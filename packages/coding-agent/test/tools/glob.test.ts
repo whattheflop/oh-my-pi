@@ -202,3 +202,17 @@ describe("GlobTool.execute", () => {
 		await expect(execution).rejects.toBeInstanceOf(ToolAbortError);
 	});
 });
+
+describe("GlobTool metadata", () => {
+	test("shares frozen examples across instances", () => {
+		const first = new GlobTool(createSession("/first"));
+		const second = new GlobTool(createSession("/second"), { rootPathAlias: true });
+
+		expect(first.examples).toBe(second.examples);
+		expect(Object.isFrozen(first.examples)).toBe(true);
+		for (const example of first.examples) {
+			expect(Object.isFrozen(example)).toBe(true);
+			if ("call" in example) expect(Object.isFrozen(example.call)).toBe(true);
+		}
+	});
+});

@@ -41,10 +41,13 @@ import { AGENTS_MD_LIMIT, buildWorkspaceTree, type WorkspaceTree } from "./works
 
 /** Bundled personality specs, keyed by the `personality` setting value. */
 const PERSONALITY_SPECS: Record<Exclude<Personality, "none">, string> = {
-	default: defaultPersonality,
-	friendly: friendlyPersonality,
-	pragmatic: pragmaticPersonality,
+	default: defaultPersonality.trim(),
+	friendly: friendlyPersonality.trim(),
+	pragmatic: pragmaticPersonality.trim(),
 };
+
+/** Static secondary block shared by every session that exposes computer use. */
+const COMPUTER_SAFETY_PROMPT = computerSafetyPrompt.trim();
 
 /**
  * Load the user-level PERSONALITY.md override for the system prompt's
@@ -354,20 +357,33 @@ function getKernelIdentity(): string {
 	return `${os.type()} ${os.release()}`.trim();
 }
 
-function getEnvironmentInfo(
-	cpuModel: string | undefined,
-	gpu: string | undefined,
-): Array<{ label: string; value: string }> {
-	const entries: Array<{ label: string; value: string | undefined }> = [
-		{ label: "OS", value: `${os.platform()} ${os.release()}` },
-		{ label: "Distro", value: os.type() },
-		{ label: "Kernel", value: getKernelIdentity() },
-		{ label: "Arch", value: os.arch() },
-		{ label: "CPU", value: cpuModel },
-		{ label: "GPU", value: gpu },
-		{ label: "Terminal", value: getTerminalName() },
-	];
-	return entries.filter((e): e is { label: string; value: string } => !!e.value);
+type EnvironmentInfo = ReadonlyArray<{ readonly label: string; readonly value: string }>;
+const ENVIRONMENT_LABELS = Object.freeze(["OS", "Distro", "Kernel", "Arch", "CPU", "GPU", "Terminal"] as const);
+
+const environmentInfoCache = new Map<string, EnvironmentInfo>();
+
+function getEnvironmentInfo(cpuModel: string | undefined, gpu: string | undefined): EnvironmentInfo {
+	const values = [
+		`${os.platform()} ${os.release()}`,
+		os.type(),
+		getKernelIdentity(),
+		os.arch(),
+		cpuModel,
+		gpu,
+		getTerminalName(),
+	] as const;
+	const key = values.map(value => value ?? "").join("\0");
+	const cached = environmentInfoCache.get(key);
+	if (cached) return cached;
+
+	const entries = values.flatMap((value, index) => {
+		if (!value) return [];
+		const label = ENVIRONMENT_LABELS[index];
+		return label ? [{ label, value }] : [];
+	});
+	const info = Object.freeze(entries);
+	environmentInfoCache.set(key, info);
+	return info;
 }
 
 /** Discover TITLE_SYSTEM.md file for automatic session-title prompt overrides */
@@ -504,7 +520,7 @@ export async function loadSystemPromptFiles(options: LoadContextFilesOptions = {
 	return userLevel?.content ?? null;
 }
 
-export const DEFAULT_SYSTEM_PROMPT_TOOL_NAMES = ["read", "bash", "edit", "write"] as const;
+export const DEFAULT_SYSTEM_PROMPT_TOOL_NAMES = Object.freeze(["read", "bash", "edit", "write"] as const);
 
 export interface SystemPromptToolMetadata {
 	label: string;
@@ -562,7 +578,6 @@ export function projectSystemPromptToolMetadata(
 			wireName,
 		});
 	};
-
 	if (projection.mode === "compact") {
 		for (const name of projection.toolNames) {
 			const tool = tools.get(name);
@@ -583,7 +598,7 @@ export interface BuildSystemPromptOptions {
 	/** Tools to include in prompt. */
 	tools?: Map<string, SystemPromptToolMetadata>;
 	/** Tool names to include in prompt. */
-	toolNames?: string[];
+	toolNames?: readonly string[];
 	/**
 	 * Names actually exposed as provider-callable tools. Defaults to `toolNames`.
 	 * Code Mode passes its direct keep-set so the rendered tool inventory matches
@@ -835,7 +850,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 	const cpuModelPromise = logger.time("getCpuModel", getCpuModel);
 	const gpuPromise = logger.time("getCachedGpu", getCachedGpu);
 	// "none" (explicit off — and every subagent) omits the block and skips the file lookup.
-	const bundledPersonality = personality === "none" ? "" : PERSONALITY_SPECS[personality].trim();
+	const bundledPersonality = personality === "none" ? "" : PERSONALITY_SPECS[personality];
 	const personalityPromise: Promise<string> =
 		personality === "none"
 			? Promise.resolve("")
@@ -910,7 +925,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 	// Priority: explicit list > tools map > conservative SDK fallback.
 	let toolNames = providedToolNames;
 	if (!toolNames) {
-		toolNames = tools ? Array.from(tools.keys()) : [...DEFAULT_SYSTEM_PROMPT_TOOL_NAMES];
+		toolNames = tools ? Array.from(tools.keys()) : DEFAULT_SYSTEM_PROMPT_TOOL_NAMES;
 	}
 
 	// List mode shows a compact tool-name list; it only applies when descriptors
@@ -1022,7 +1037,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 	const rendered = prompt.render(resolvedCustomPrompt ? customSystemPromptTemplate : systemPromptTemplate, data);
 	const systemPrompt = [rendered];
 	if (toolNames.includes("computer")) {
-		systemPrompt.push(computerSafetyPrompt.trim());
+		systemPrompt.push(COMPUTER_SAFETY_PROMPT);
 	}
 	// Custom prompt templates already render context files and append text; the
 	// project footer still carries environment, cwd, workspace, and dir-context.
@@ -1039,6 +1054,6 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions = {}):
 	// The xd:// protocol section (with its device catalog) is only rendered by the
 	// default template; a resolved custom prompt uses a template that omits it.
 	const xdevCatalogNames =
-		!resolvedCustomPrompt && xdevTools.length > 0 ? xdevTools.map(mounted => mounted.name) : undefined;
-	return { systemPrompt, xdevCatalogNames };
+		!resolvedCustomPrompt && xdevTools.length > 0 ? Object.freeze(xdevTools.map(mounted => mounted.name)) : undefined;
+	return { systemPrompt: Object.freeze(systemPrompt) as unknown as string[], xdevCatalogNames };
 }

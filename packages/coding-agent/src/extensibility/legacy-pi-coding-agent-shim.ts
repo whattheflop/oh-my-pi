@@ -1158,7 +1158,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const { cwd, noExtensions, additionalExtensionPaths, extensionFactories, eventBus } = this.#state;
 
 		if (noExtensions && additionalExtensionPaths.length === 0 && extensionFactories.length === 0) {
-			return { extensions: [], errors: [], runtime: createExtensionRuntime() };
+			return { extensions: [], errors: [], runtime: createExtensionRuntime(), preparedExtensions: [] };
 		}
 
 		const paths = await discoverSessionExtensionPaths(
@@ -1389,16 +1389,28 @@ export async function createAgentSession(
 		forwarded.settingsManager = state.settingsPromise;
 	}
 
-	// Route the loader's already-loaded extension result through the SDK's
-	// `preloadedExtensions` seam. Skipping this branch would let
-	// `createAgentSession` re-run its own discovery and undo the caller's
-	// `noExtensions: true`.
+	// Forward imported factories, not the loader's session-bound Extension
+	// instances. A child must bind each factory against its own cwd, event bus,
+	// and runtime; reusing `preloadedExtensions` would route callbacks back into
+	// the parent session.
 	if (
 		rest.preloadedExtensions === undefined &&
 		rest.preloadedPreparedExtensions === undefined &&
 		rest.preloadedExtensionPaths === undefined
 	) {
-		forwarded.preloadedExtensions = state.extensionsResult;
+		if (state.extensionsResult.preparedExtensions !== undefined) {
+			forwarded.preloadedPreparedExtensions = state.extensionsResult.preparedExtensions;
+		} else {
+			// Upstream/custom ResourceLoader results predate OMP's detached
+			// factory field. Re-load only the paths selected by that loader;
+			// `[]` intentionally preserves discovery suppression.
+			forwarded.preloadedExtensionPaths = state.extensionsResult.extensions
+				.map(extension => extension.resolvedPath)
+				.filter(extensionPath => !extensionPath.startsWith("<inline"));
+		}
+		if (rest.extensions === undefined && state.extensionFactories.length > 0) {
+			forwarded.extensions = state.extensionFactories;
+		}
 	}
 
 	if (rest.skills === undefined) {

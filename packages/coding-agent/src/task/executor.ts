@@ -68,6 +68,7 @@ import { trackLateCleanup } from "../utils/late-cleanup";
 import { buildNamedToolChoice } from "../utils/tool-choice";
 import type { WorkspaceTree } from "../workspace-tree";
 import { attributeSubagentError } from "./error-attribution";
+import type { TaskExtensionPolicy } from "./extension-policy";
 import { generateTaskLabel } from "./label";
 import { resolveAgentPrewalkDefault } from "./prewalk";
 import { isReadOnlyAgent } from "./read-only-policy";
@@ -501,6 +502,8 @@ export interface ExecutorOptions {
 	preloadedExtensionPaths?: string[];
 	/** Parent-imported extension factories rebound to the child runtime. */
 	preloadedPreparedExtensions?: readonly PreparedExtension[];
+	/** Effective filesystem extension policy inherited by nested task sessions. */
+	taskExtensionPolicy?: TaskExtensionPolicy;
 	/**
 	 * Parent's discovered custom-tool source paths. Forwarded to skip the
 	 * `.omp/tools/` FS scan in the subagent; the subagent then re-binds each
@@ -3353,6 +3356,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				skills: options.skills,
 				promptTemplates: options.promptTemplates,
 				workspaceTree: options.workspaceTree,
+				taskExtensionPolicy: options.taskExtensionPolicy,
 				rules: options.rules,
 				extensionRoots: options.extensionRoots,
 				preloadedExtensionPaths: restrictToolNames ? [] : options.preloadedExtensionPaths,
@@ -3527,6 +3531,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				readOnly: isReadOnlyAgent(agent),
 				spawns: spawnsEnv,
 				readSummarize: agent.readSummarize,
+				taskExtensionPolicy: options.taskExtensionPolicy,
 				advisor: advisorSelection ? (advisorSelection.model ?? "on") : undefined,
 				outputSchema,
 				outputSchemaMode: options.outputSchemaMode,

@@ -209,4 +209,23 @@ describe("parseAgentFields", () => {
 		expect(parseAgentFields({ name: "worker", description: "desc", advisor: "  " })?.advisor).toBeUndefined();
 		expect(parseAgentFields({ name: "worker", description: "desc" })?.advisor).toBeUndefined();
 	});
+	test("parses task extension policy overrides", () => {
+		expect(parseAgentFields({ name: "worker", description: "desc", extensions: "inherit" })?.extensions).toBe(
+			"inherit",
+		);
+		expect(parseAgentFields({ name: "worker", description: "desc", extensions: "none" })?.extensions).toBe("none");
+		expect(
+			parseAgentFields({
+				name: "worker",
+				description: "desc",
+				extensions: [" extension-module:workflow ", "extension-module:hooks"],
+			})?.extensions,
+		).toEqual(["extension-module:workflow", "extension-module:hooks"]);
+	});
+
+	test("ignores unsupported scalar task extension policies", () => {
+		expect(
+			parseAgentFields({ name: "worker", description: "desc", extensions: "allowlist" })?.extensions,
+		).toBeUndefined();
+	});
 });

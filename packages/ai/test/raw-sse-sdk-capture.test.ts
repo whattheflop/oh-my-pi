@@ -105,9 +105,14 @@ const anthropicEvents: RawMessageStreamEvent[] = [
 	{ type: "message_stop" },
 ];
 
-function createSseResponse(events: unknown[]): Response {
+function createSseResponse(events: unknown[], eventLines: ReadonlyArray<string | undefined> = []): Response {
 	const payload = `${events
-		.map(event => `data: ${typeof event === "string" ? event : JSON.stringify(event)}`)
+		.map((event, index) => {
+			const eventLine = eventLines[index];
+			return `${eventLine === undefined ? "" : `event: ${eventLine}\n`}data: ${
+				typeof event === "string" ? event : JSON.stringify(event)
+			}`;
+		})
 		.join("\n\n")}\n\n`;
 	return new Response(payload, {
 		status: 200,
@@ -115,9 +120,9 @@ function createSseResponse(events: unknown[]): Response {
 	});
 }
 
-function createFetchResponse(events: unknown[]): FetchImpl {
+function createFetchResponse(events: unknown[], eventLines: ReadonlyArray<string | undefined> = []): FetchImpl {
 	return Object.assign(
-		vi.fn(async () => createSseResponse(events)),
+		vi.fn(async () => createSseResponse(events, eventLines)),
 		{ preconnect: fetch.preconnect },
 	) as typeof fetch;
 }
@@ -173,7 +178,7 @@ afterEach(() => {
 
 describe("SDK raw SSE capture", () => {
 	it("records OpenAI Responses SDK events from the decoded stream", async () => {
-		const fetchMock = createFetchResponse(openAIResponsesEvents);
+		const fetchMock = createFetchResponse(openAIResponsesEvents, ["response.created"]);
 		const observed: RawSseEvent[] = [];
 
 		const result = await streamOpenAIResponses(openAIResponsesModel, context, {
@@ -181,15 +186,15 @@ describe("SDK raw SSE capture", () => {
 			fetch: fetchMock,
 			onSseEvent: recordEvent(observed),
 		}).result();
-
 		expect(result.stopReason).toBe("stop");
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(observed.map(event => event.event)).toEqual(openAIResponsesEvents.map(event => event.type));
-		expect(JSON.parse(observed[0]!.data)).toEqual(openAIResponsesEvents[0]);
 		expect(observed[0]!.raw).toEqual([
 			"event: response.created",
 			`data: ${JSON.stringify(openAIResponsesEvents[0])}`,
 		]);
+		expect(JSON.parse(observed[0]!.data)).toEqual(openAIResponsesEvents[0]);
+		expect(observed[1]!.raw).toEqual([`data: ${JSON.stringify(openAIResponsesEvents[1])}`]);
 	});
 
 	it("records OpenAI Chat Completions SDK events from the decoded stream", async () => {
@@ -216,7 +221,7 @@ describe("SDK raw SSE capture", () => {
 			},
 			"[DONE]",
 		];
-		const fetchMock = createFetchResponse(chunks);
+		const fetchMock = createFetchResponse(chunks, ["chat.completion.chunk"]);
 		const observed: RawSseEvent[] = [];
 
 		const result = await streamOpenAICompletions(openAICompletionsModel, context, {
@@ -232,13 +237,14 @@ describe("SDK raw SSE capture", () => {
 		expect(observed.map(event => event.event)).toEqual(["chat.completion.chunk", "chat.completion.chunk", null]);
 		expect(JSON.parse(observed[0]!.data)).toEqual(chunks[0]);
 		expect(observed[0]!.raw).toEqual(["event: chat.completion.chunk", `data: ${JSON.stringify(chunks[0])}`]);
+		expect(observed[1]!.raw).toEqual([`data: ${JSON.stringify(chunks[1])}`]);
 		const sentinel = observed.at(-1);
 		expect(sentinel?.data).toBe("[DONE]");
 		expect(sentinel?.raw).toEqual(["data: [DONE]"]);
 	});
 
 	it("records Azure OpenAI Responses SDK events from the decoded stream", async () => {
-		const fetchMock = createFetchResponse(openAIResponsesEvents);
+		const fetchMock = createFetchResponse(openAIResponsesEvents, ["response.created"]);
 		const observed: RawSseEvent[] = [];
 
 		const result = await streamAzureOpenAIResponses(azureOpenAIResponsesModel, context, {
@@ -252,6 +258,11 @@ describe("SDK raw SSE capture", () => {
 		expect(result.stopReason).toBe("stop");
 		expect(observed.map(event => event.event)).toEqual(openAIResponsesEvents.map(event => event.type));
 		expect(JSON.parse(observed.at(-1)!.data)).toEqual(openAIResponsesEvents.at(-1));
+		expect(observed[0]!.raw).toEqual([
+			"event: response.created",
+			`data: ${JSON.stringify(openAIResponsesEvents[0])}`,
+		]);
+		expect(observed[1]!.raw).toEqual([`data: ${JSON.stringify(openAIResponsesEvents[1])}`]);
 	});
 
 	it("records Anthropic SDK events from the decoded stream", async () => {

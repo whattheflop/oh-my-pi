@@ -88,6 +88,11 @@ export interface MemberSource {
 	 * the container records them) and throw {@link ArchiveError} on mismatch.
 	 */
 	read(size: number, memberPath: string): Promise<Uint8Array>;
+	/**
+	 * Release format-owned buffers after the caller has finished consuming
+	 * extracted bytes. Readers that only retain file-backed state may omit it.
+	 */
+	release?(): void;
 }
 
 /**

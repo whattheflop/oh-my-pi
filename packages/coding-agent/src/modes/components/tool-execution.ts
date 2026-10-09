@@ -17,6 +17,7 @@ import { getProjectDir, isRecord, logger, sanitizeText } from "@oh-my-pi/pi-util
 import { type PerFileDiffPreview, renderStreamingFallback } from "../../edit/renderer";
 import type { Theme } from "../../modes/theme/theme";
 import { getThemeEpoch, theme } from "../../modes/theme/theme";
+import type { TaskMarkdownCache } from "../../task/render";
 import { BASH_DEFAULT_PREVIEW_LINES } from "../../tools/bash";
 import { formatDefaultToolExecution } from "../../tools/default-renderer";
 import { EVAL_DEFAULT_PREVIEW_LINES } from "../../tools/eval";
@@ -334,6 +335,10 @@ export class ToolExecutionComponent extends Container {
 	// same domain as AnimationFrame.now supplied by the transcript allocator).
 	#executionStartedAtNow: number | undefined;
 	// Wall clock captured whenever a task card is rebuilt.
+	// Assignment/context Markdown renderers are stable for this tool execution.
+	// Keep them alive across spinner/progress-only rebuilds, but never share the
+	// cache between blocks.
+	#taskMarkdownCache?: TaskMarkdownCache;
 	#taskRenderNowMs = Date.now();
 	// Set on each `render()` when the last painted pending shape must be
 	// replayed wholesale when the first result arrives. Reset gates key off
@@ -406,6 +411,7 @@ export class ToolExecutionComponent extends Container {
 		// signals "nothing meaningful changed" and the renderer can skip.
 		if (args === this.#args) return;
 		this.#args = args;
+		this.#taskMarkdownCache = undefined;
 		this.#displayInputVersion++;
 		this.#updateSpinnerAnimation();
 		this.#updateDisplay();
@@ -420,6 +426,7 @@ export class ToolExecutionComponent extends Container {
 		this.#argsComplete = true;
 		this.#updateSpinnerAnimation();
 		if (alreadyComplete) return;
+		this.#taskMarkdownCache = undefined;
 		this.#displayInputVersion++;
 		this.#updateDisplay();
 	}
@@ -435,6 +442,7 @@ export class ToolExecutionComponent extends Container {
 		this.#executionStartedAtNow = performance.now();
 		this.#argsComplete = true;
 		this.#updateSpinnerAnimation();
+		this.#taskMarkdownCache = undefined;
 		this.#displayInputVersion++;
 		this.#updateDisplay();
 	}
@@ -514,6 +522,7 @@ export class ToolExecutionComponent extends Container {
 		const partialResultPainted = this.#partialResultShapePainted;
 		this.#firstResultViewportRepaintShapePainted = false;
 		this.#partialResultShapePainted = false;
+		if (hadNoResult || this.#isPartial !== isPartial) this.#taskMarkdownCache = undefined;
 		this.#result = result;
 		this.#resultVersion++;
 		this.#blockVersion++;
@@ -711,6 +720,7 @@ export class ToolExecutionComponent extends Container {
 	}
 	/** Mark the call parked: it returned, but stays tracked for async job frames. */
 	parkAsBackground(): void {
+		this.#taskMarkdownCache = undefined;
 		this.#parkedBackground = true;
 	}
 
@@ -721,6 +731,7 @@ export class ToolExecutionComponent extends Container {
 	seal(): void {
 		if (this.#sealed) return;
 		this.#sealed = true;
+		this.#taskMarkdownCache = undefined;
 		this.#blockVersion++;
 		this.#displaceableByToolName = undefined;
 		this.stopAnimation();
@@ -783,6 +794,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	setToolActivityVisible(visible: boolean): void {
+		if (this.#toolActivityVisible !== visible) this.#taskMarkdownCache = undefined;
 		this.#toolActivityVisible = visible;
 		super.invalidate();
 	}
@@ -1277,6 +1289,7 @@ export class ToolExecutionComponent extends Container {
 			// draws every dispatched agent as a progress/result line, so tell
 			// `renderCall` to drop its duplicate streaming preview list.
 			context.hasResult = Boolean(this.#result);
+			context.markdownCache = this.#taskMarkdownCache ??= {};
 			this.#taskRenderNowMs = Date.now();
 			context.nowMs = this.#taskRenderNowMs;
 		} else if (isEditLikeToolName(this.#toolName)) {

@@ -67,6 +67,13 @@ describe("StablePrefix", () => {
 		const changed = p.build(ctx, BUILD_OPTS);
 		expect(changed).toBe(false);
 	});
+	it("retains an immutable system prompt array by reference", () => {
+		const p = new StablePrefix();
+		const systemPrompt = Object.freeze(["Stable"]) as unknown as string[];
+		p.build(makeContext({ systemPrompt }), BUILD_OPTS);
+
+		expect(p.toContext().systemPrompt).toBe(systemPrompt);
+	});
 
 	it("returns true when system prompt changes", () => {
 		const p = new StablePrefix();

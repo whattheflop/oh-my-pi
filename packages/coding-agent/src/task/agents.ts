@@ -27,6 +27,7 @@ interface AgentFrontmatter {
 	blocking?: boolean;
 	prewalk?: boolean | string;
 	advisor?: boolean | string;
+	extensions?: "inherit" | "none" | string[];
 }
 
 interface EmbeddedAgentDef {

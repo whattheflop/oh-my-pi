@@ -44,6 +44,10 @@ class RarMemberSource implements MemberSource {
 	async read(size: number, memberPath: string): Promise<Uint8Array> {
 		return this.#archive.read(this.#index, size, memberPath);
 	}
+
+	release(): void {
+		this.#archive.release();
+	}
 }
 
 class RarArchive {
@@ -57,6 +61,10 @@ class RarArchive {
 		this.#source = source;
 		this.#records = records;
 		this.#limits = options.limits;
+	}
+
+	release(): void {
+		this.#cache.clear();
 	}
 
 	member(index: number): MemberSource {

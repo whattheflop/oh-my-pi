@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { getThemeByName, setThemeInstance, type Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import type { TaskParams } from "@oh-my-pi/pi-coding-agent/task";
+import type { TaskMarkdownCache } from "@oh-my-pi/pi-coding-agent/task/render";
 import { taskToolRenderer } from "@oh-my-pi/pi-coding-agent/task/renderer";
 
 describe("task renderer: streaming call preview", () => {
@@ -178,5 +179,32 @@ describe("task renderer: streaming call preview", () => {
 
 		expect(out).not.toContain("Review the auth module.");
 		expect(out).not.toContain("ReviewAuth");
+	});
+	it("reuses assignment and context sections only within one render cache", () => {
+		const args: TaskParams = {
+			context: "# Goal\nKeep the shared context.",
+			task: "Inspect the renderer.",
+		};
+		const cache: TaskMarkdownCache = {};
+		const renderContext = { markdownCache: cache };
+
+		taskToolRenderer.renderCall(args, { expanded: false, isPartial: true, spinnerFrame: 0, renderContext }, theme);
+		const assignmentRenderer = cache.assignment?.renderer;
+		const contextRenderer = cache.context?.renderer;
+		expect(assignmentRenderer).toBeDefined();
+		expect(contextRenderer).toBeDefined();
+
+		taskToolRenderer.renderCall(args, { expanded: false, isPartial: true, spinnerFrame: 1, renderContext }, theme);
+		expect(cache.assignment?.renderer).toBe(assignmentRenderer);
+		expect(cache.context?.renderer).toBe(contextRenderer);
+
+		const otherCache: TaskMarkdownCache = {};
+		taskToolRenderer.renderCall(
+			args,
+			{ expanded: false, isPartial: true, spinnerFrame: 0, renderContext: { markdownCache: otherCache } },
+			theme,
+		);
+		expect(otherCache.assignment?.renderer).not.toBe(assignmentRenderer);
+		expect(otherCache.context?.renderer).not.toBe(contextRenderer);
 	});
 });
